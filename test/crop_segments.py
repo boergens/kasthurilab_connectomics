@@ -25,4 +25,6 @@ dilator = DilateOverlap(cremi_file_path="/home/suryakalia/documents/summer/datas
 
 dilator.blacklist_append([20474])
 
-dilator.run()
+# dilator.run()
+dilator.overlap_segments()
+dilator.construct_full_overlap_mask()

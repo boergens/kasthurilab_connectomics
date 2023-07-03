@@ -16,6 +16,9 @@ import lzma
 import pickle
 from scipy import ndimage
 import glob
+import csv
+from tqdm import tqdm
+import tifffile
 
 
 # Given a segmentation map (3D), we will dilate the neuron boundaries and identify overlap between neuron pairs.
@@ -108,7 +111,7 @@ class DilateOverlap:
     
     crop_num = 1
     header = ['SEGMENT_ID', 'VOLUME', 'MIN_X', 'MIN_Y', 'MIN_Z', 'MAX_X', 'MAX_Y', 'MAX_Z']
-    with open(self.output_dir + "/metadata.csv", 'w', encoding='UTF8') as f:
+    with open(self.output_dir + "/metadata_crop.csv", 'w', encoding='UTF8') as f:
       writer = csv.writer(f)
       # write the header
       writer.writerow(header)
@@ -138,12 +141,116 @@ class DilateOverlap:
 
     print("Successfully created ", crop_num, " segment corps")
 
+  # Given two image masks, create the overlap mask in common coordinates
+  def overlap_img_pair(self, img_filepath_i, min_coord_i, max_coord_i, img_filepath_j, min_coord_j, max_coord_j, min_coord_ij, max_coord_ij):
+    with lzma.open(img_filepath_i, "rb") as f:
+      img_i = pickle.load(f)
+      
+    with lzma.open(img_filepath_j, "rb") as f:
+      img_j = pickle.load(f)
+    
+    min_coord_i_crop = min_coord_ij - min_coord_i
+    max_coord_i_crop = max_coord_ij - min_coord_i
+    min_coord_j_crop = min_coord_ij - min_coord_j
+    max_coord_j_crop = max_coord_ij - min_coord_j
+    
+    img_i_crop = img_i[min_coord_i_crop.z:max_coord_i_crop.z+1, min_coord_i_crop.y:max_coord_i_crop.y+1, min_coord_i_crop.x:max_coord_i_crop.x+1].astype(bool)
+    img_j_crop = img_j[min_coord_j_crop.z:max_coord_j_crop.z+1, min_coord_j_crop.y:max_coord_j_crop.y+1, min_coord_j_crop.x:max_coord_j_crop.x+1].astype(bool)
+    
+    overlap_img = np.logical_and(img_i_crop, img_j_crop)
+    return overlap_img
 
+  def overlap_segments(self):
+    if not os.path.exists(self.output_dir+"/overlaps"):
+      os.makedirs(self.output_dir+"/overlaps")
+      
+    # Clear out directory to avoid mixing up with old overlaps
+    files = glob.glob(self.output_dir+"/overlaps/*")
+    for f in files:
+        os.remove(f)
+    
+    # Read list of crops using metadata file
+    with open(self.output_dir + "/metadata_crop.csv", newline='') as f:
+        reader = csv.reader(f)
+        crop_list = list(reader)[1:]
+    
+    print("Number of crops read = ", len(crop_list))
+    print("Calculating segment overlaps")
+    overlap_count = 0
+    header = ['SEGMENT_ID_1', 'SEGMENT_ID_2', 'VOLUME', 'MIN_X', 'MIN_Y', 'MIN_Z', 'MAX_X', 'MAX_Y', 'MAX_Z']
+    with open(self.output_dir + "/metadata_overlap.csv", 'w', encoding='UTF8') as f:
+      writer = csv.writer(f)
+      writer.writerow(header)
+      # Iterate over all possible overlap combinations
+      for i in tqdm(range(len(crop_list)-1)):
+      # # DEBUG: using only 1 region
+      # for i in tqdm(range(100, 101)):
+        print("Searching for overlap with crop ", i)
+        
+        min_coord_i = Coordinate(crop_list[i][2], crop_list[i][3], crop_list[i][4])
+        max_coord_i = Coordinate(crop_list[i][5], crop_list[i][6], crop_list[i][7])
+        img_filepath_i = self.output_dir + "/crops/" + str(i+1) + "_" + crop_list[i][0] + ".xz"
+        
+        for j in tqdm(range(i+1, len(crop_list))):
+          min_coord_j = Coordinate(crop_list[j][2], crop_list[j][3], crop_list[j][4])
+          max_coord_j = Coordinate(crop_list[j][5], crop_list[j][6], crop_list[j][7])
+          img_filepath_j = self.output_dir + "/crops/" + str(j+1) + "_" + crop_list[j][0] + ".xz"
+          
+          overlap_found, min_coord_ij, max_coord_ij = intersection_crop(min_coord_i, max_coord_i, min_coord_j, max_coord_j)
+          if (overlap_found):
+            overlap_img = self.overlap_img_pair(img_filepath_i, min_coord_i, max_coord_i, img_filepath_j, min_coord_j, max_coord_j, min_coord_ij, max_coord_ij)
+            # Save overlapped image mask. It is reduced to uint8 since we just have a bitmask at this stage
+            with lzma.open(self.output_dir + "/overlaps/" + str(crop_list[i][0]) + "_" + str(crop_list[j][0]) + ".xz", "wb") as f:
+              pickle.dump(overlap_img, f)
+            
+            # Save metadata of overlap IDs, volume and coordinated
+            data = [crop_list[i][0], crop_list[j][0], overlap_img.sum(), min_coord_ij.x, min_coord_ij.y, min_coord_ij.z, max_coord_ij.x, max_coord_ij.y, max_coord_ij.z]
+            writer.writerow(data)
+            overlap_count += 1
+            
+    print("Num overlap instances = ", overlap_count)
 
+  def construct_full_overlap_mask(self):
+    # Read list of overlaps using metadata file
+    with open(self.output_dir + "/metadata_overlap.csv", newline='') as f:
+        reader = csv.reader(f)
+        overlap_list = list(reader)
+    print("Merging all overlapping segemnts into a common image")
+    overlap_img_combined = np.zeros(self.neuron_ids.shape).astype(bool)
+    # Iterate over all overlaps and merge them into one image
+    for k in tqdm(range(1, len(overlap_list))):
+      segment_id_i = overlap_list[k][0]
+      segment_id_j = overlap_list[k][1]
+      min_x = int(overlap_list[k][3])
+      min_y = int(overlap_list[k][4])
+      min_z = int(overlap_list[k][5])
+      max_x = int(overlap_list[k][6])
+      max_y = int(overlap_list[k][7])
+      max_z = int(overlap_list[k][8])
+      
+      overlap_file_path = self.output_dir + "/overlaps/" + str(segment_id_i) + "_" + str(segment_id_j) + ".xz"
+      with lzma.open(overlap_file_path, "rb") as f:
+        overlap_img = pickle.load(f)
+      
+      # overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1] = overlap_img
+      overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1] = np.logical_or(overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1], overlap_img)
+
+      
+    # Convert overlap image file to uint8
+    overlap_img_combined = overlap_img_combined.astype(np.uint8)
+    
+    # Save combained overlap image mask as both numpy array and TIFF stack
+    with lzma.open(self.output_dir + "/overlap_img_combined" + ".xz", "wb") as f:
+      pickle.dump(overlap_img_combined, f)
+      
+      tifffile.imsave(self.output_dir + "overlap_img_combined" + ".tiff", overlap_img_combined)
+  
   def run(self):
     self.create_bounding_boxes()
     self.trim_invalid_segments()
     self.crop_out_bounding_boxes()
+    self.overlap_segments()
+    self.construct_full_overlap_mask()
 
 
 

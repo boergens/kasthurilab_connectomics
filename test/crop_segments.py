@@ -19,12 +19,12 @@ sys.path.insert(0, os.path.abspath('/home/suryakalia/documents/summer/exploratio
 from sk_connectomics.core.dilate_overlap import DilateOverlap
 
 dilator = DilateOverlap(cremi_file_path="/home/suryakalia/documents/summer/datasets/cremi/sample_A_20160501.hdf",
-                        output_dir="/scratch/midway3/suryakalia/outputs/cremi_A_crops",
+                        output_dir="/home/suryakalia/documents/summer/tests/cremi_A_crops",
                         dilation_voxel_count=1,
                         voxel_volume_threshold=50)
 
 dilator.blacklist_append([20474])
 
 # dilator.run()
-dilator.overlap_segments()
+dilator.overlap_all_segments()
 dilator.construct_full_overlap_mask()

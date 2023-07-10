@@ -19,12 +19,22 @@ sys.path.insert(0, os.path.abspath('/home/suryakalia/documents/summer/exploratio
 from sk_connectomics.core.dilate_overlap import DilateOverlap
 
 dilator = DilateOverlap(cremi_file_path="/home/suryakalia/documents/summer/datasets/cremi/sample_A_20160501.hdf",
-                        output_dir="/home/suryakalia/documents/summer/tests/cremi_A_crops",
+                        output_dir="/home/suryakalia/documents/summer/tests/cremi_A_analysis",
                         dilation_voxel_count=1,
-                        voxel_volume_threshold=50)
+                        voxel_volume_threshold=50,
+                        num_cores=48)
 
 dilator.blacklist_append([20474])
 
 # dilator.run()
-dilator.overlap_all_segments()
-dilator.construct_full_overlap_mask()
+# dilator.overlap_all_segments()
+# dilator.construct_full_overlap_mask()
+
+
+# dilator.overlap_all_segment_pairs("neuron")
+# dilator.construct_full_overlap_mask("neuron")
+
+# dilator.overlap_all_segment_pairs("cleft")
+dilator.construct_full_overlap_mask("cleft")
+
+# dilator.find_overlaping_neuron_synapse_segments("cleft")

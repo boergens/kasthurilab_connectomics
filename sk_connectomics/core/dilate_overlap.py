@@ -134,6 +134,8 @@ class DilateOverlap:
     if (input_mode == "neuron"):
       # Use segment volume map that was created earlier after trimming
       sorted_segment_volume_map = dict(sorted(self.segment_volume_map.items(), key = lambda x:x[1], reverse = True))
+      # If neuron segmentation isn't dense, we need to eliminate the background voxels here as well.
+      del(sorted_segment_volume_map[0])
     else:
       # Create a segmentId to volume map
       (unique, counts) = np.unique(img, return_counts=True)
@@ -144,7 +146,8 @@ class DilateOverlap:
       sorted_segment_volume_map = dict(sorted(segment_volume_map.items(), key = lambda x:x[1], reverse = True))
       # Remove background segment from clefts/pred
       del(sorted_segment_volume_map[0])
-      print("Sorted segment volume map: ", sorted_segment_volume_map )
+      
+    print("Sorted segment volume map: ", sorted_segment_volume_map )
     
     crop_num = 1
     header = ['SEGMENT_ID', 'VOLUME', 'MIN_X', 'MIN_Y', 'MIN_Z', 'MAX_X', 'MAX_Y', 'MAX_Z']
@@ -359,23 +362,33 @@ class DilateOverlap:
         
     print("Merging all overlapping segemnts into a common image")
     overlap_img_combined = np.zeros(self.neuron_ids.shape).astype(bool)
-    # Iterate over all overlaps and merge them into one image
-    for k in tqdm(range(1, len(overlap_list))):
-      segment_id_i = overlap_list[k][0]
-      segment_id_j = overlap_list[k][1]
-      min_x = int(overlap_list[k][2])
-      min_y = int(overlap_list[k][3])
-      min_z = int(overlap_list[k][4])
-      max_x = int(overlap_list[k][5])
-      max_y = int(overlap_list[k][6])
-      max_z = int(overlap_list[k][7])
-      
-      overlap_file_path = self.output_dir + "/" + input_mode + "_overlaps/" + str(segment_id_i) + "_" + str(segment_id_j) + ".xz"
-      with lzma.open(overlap_file_path, "rb") as f:
-        overlap_img = pickle.load(f)
-      
-      # overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1] = overlap_img
-      overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1] = np.logical_or(overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1], overlap_img)
+    
+    header = ['SEGMENT_ID_1', 'SEGMENT_ID_2', 'MIN_X', 'MIN_Y', 'MIN_Z', 'MAX_X', 'MAX_Y', 'MAX_Z', 'VOLUME']
+    with open(self.output_dir + "/metadata_" + input_mode + "_overlap_volume.csv", 'w', encoding='UTF8') as f:
+      writer = csv.writer(f)
+      writer.writerow(header)
+      # Iterate over all overlaps and merge them into one image
+      for k in tqdm(range(1, len(overlap_list))):
+        segment_id_i = overlap_list[k][0]
+        segment_id_j = overlap_list[k][1]
+        min_x = int(overlap_list[k][2])
+        min_y = int(overlap_list[k][3])
+        min_z = int(overlap_list[k][4])
+        max_x = int(overlap_list[k][5])
+        max_y = int(overlap_list[k][6])
+        max_z = int(overlap_list[k][7])
+        
+        overlap_file_path = self.output_dir + "/" + input_mode + "_overlaps/" + str(segment_id_i) + "_" + str(segment_id_j) + ".xz"
+        with lzma.open(overlap_file_path, "rb") as f:
+          overlap_img = pickle.load(f)
+        
+        # Calculate volume of overlap by counting the non-zero voxels and storing that sum in metadata
+        overlap_volume_sum = np.sum(overlap_img)
+        new_metadata_row = overlap_list[k]
+        new_metadata_row.append(overlap_volume_sum)
+        writer.writerow(new_metadata_row)
+        
+        overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1] = np.logical_or(overlap_img_combined[min_z:max_z+1, min_y:max_y+1, min_x:max_x+1], overlap_img)
 
       
     # Convert overlap image file to uint8

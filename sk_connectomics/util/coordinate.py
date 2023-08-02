@@ -26,13 +26,13 @@ def minCoord(c1, c2):
 def maxCoord(c1, c2):
   return Coordinate(max(c1.x, c2.x), max(c1.y, c2.y), max(c1.z, c2.z))
 
-# Give a lower bound to minCoord upon dilation by given amount but restricted by the image shape
-def dilateMin(coord, dilation_amt, img_shape):
-  return Coordinate(max(coord.x - dilation_amt, 0), max(coord.y - dilation_amt, 0), max(coord.z - dilation_amt, 0))
+# Give a lower bound to minCoord upon dilation by given amount but restricted by the image shape. Anisotropic dilation for xy and z
+def dilateMin(coord, xy_dilation_amt, z_dilation_amt, img_shape):
+  return Coordinate(max(coord.x - xy_dilation_amt, 0), max(coord.y - xy_dilation_amt, 0), max(coord.z - z_dilation_amt, 0))
 
-# Give a upper bound to minCoord upon dilation by given amount but restricted by the image shape. Here img_shape = (z, y, x)
-def dilateMax(coord, dilation_amt, img_shape):
-  return Coordinate(min(coord.x + dilation_amt, img_shape[2]-1), min(coord.y + dilation_amt, img_shape[1]-1), min(coord.z + dilation_amt, img_shape[0]-1))
+# Give a upper bound to minCoord upon dilation by given amount but restricted by the image shape. Here img_shape = (z, y, x). Anisotropic dilation for xy and z
+def dilateMax(coord, xy_dilation_amt, z_dilation_amt, img_shape):
+  return Coordinate(min(coord.x + xy_dilation_amt, img_shape[2]-1), min(coord.y + xy_dilation_amt, img_shape[1]-1), min(coord.z + z_dilation_amt, img_shape[0]-1))
 
 # Given two line segments along an axis, identify whether they overlap (coordinates are inclusive of end points)
 def check_segment_overlap(min_x1, max_x1, min_x2, max_x2):

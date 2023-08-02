@@ -22,6 +22,8 @@ from tqdm import tqdm
 import tifffile
 from multiprocessing import Pool
 import pandas as pd
+from PIL import Image
+import json
 
 
 # Given a segmentation map (3D), we will dilate the neuron boundaries and identify overlap between neuron pairs.
@@ -161,8 +163,8 @@ class DilateOverlap:
           minCoord = self.min_coord_map_neuron[segmentID]
           maxCoord = self.max_coord_map_neuron[segmentID]
           # Ensure that we crop out a larger bounding box to account for new size post dilation.
-          minCoord = dilateMin(minCoord, self.dilation_voxel_count, img.shape)
-          maxCoord = dilateMax(maxCoord, self.dilation_voxel_count, img.shape)
+          minCoord = dilateMin(minCoord, self.dilation_voxel_count, 1, img.shape)
+          maxCoord = dilateMax(maxCoord, self.dilation_voxel_count, 1, img.shape)
         elif (input_mode == "cleft"):
           # No dilation required for cleft and pred
           minCoord = self.min_coord_map_cleft[segmentID]
@@ -177,9 +179,13 @@ class DilateOverlap:
         img_crop = np.where(img_crop == segmentID , 1, 0).astype(np.uint8)
         
         if (input_mode == "neuron"):
-          # Dilate image_crop
-          for _ in range(self.dilation_voxel_count):
-            img_crop = ndimage.binary_dilation(img_crop).astype(img_crop.dtype)
+          # Dilate image_crop. For anisotropic dilation we need 1 3-D dilaiton and n-1 2-D dilations in X-Y plane
+          
+          img_crop = ndimage.binary_dilation(img_crop).astype(img_crop.dtype)
+          
+          if (self.dilation_voxel_count > 1):
+            for z in range(img_crop.shape[0]):
+              img_crop[z, :, :] = ndimage.binary_dilation(img_crop[z, :, :], iterations=self.dilation_voxel_count-1).astype(img_crop.dtype)
         
         # Save cropped image mask. It is reduced to uint8 since we just have a bitmask at this stage
         with lzma.open(self.output_dir + "/" + input_mode + "_crops/" + str(segmentID) + ".xz", "wb") as f:
@@ -400,6 +406,69 @@ class DilateOverlap:
       
       tifffile.imsave(self.output_dir + "/overlap_" + input_mode + "_img_combined" + ".tiff", overlap_img_combined)
   
+  def connectivity_matrix(self, input_mode):
+    # 1. Read neuron IDs and map them to a contiguous range
+    # 2. Create adjacency matrix representing connection counts
+    # 3. Read synapse overlaps
+    # 4. Iterating over the non-zero volume synapse overlaps, update the adjacency matrix
+    
+    # Read list of crops for retrieving their coordinates
+    with open(self.output_dir + "/metadata_neuron_crop.csv", newline='') as f:
+      reader = csv.reader(f)
+      neuron_crop_list = list(reader)[1:]
+    
+    neuron_id_map = {}
+    count = 0
+    for row in neuron_crop_list :
+      neuron_id_map[int(row[0])] = count
+      count += 1
+    
+    adj_matrix = np.zeros((count, count)).astype(np.uint8)
+    
+    # Read cleft/pred overlap metadata
+    with open(self.output_dir + "/metadata_" + input_mode + "_overlap_volume.csv", newline='') as f:
+      reader = csv.reader(f)
+      overlap_list = list(reader)[1:]
+
+    # Iterate through synapse connections and populate adjacency matrix
+    for row in overlap_list:
+      overlap_volume = int(row[8])
+      if (overlap_volume == 0):
+        continue
+      neuron_pair = row[0].split('_')
+      neuron_id_1 = neuron_id_map[int(neuron_pair[0])]
+      neuron_id_2 = neuron_id_map[int(neuron_pair[1])]
+      adj_matrix[neuron_id_1, neuron_id_2] += 1
+      adj_matrix[neuron_id_2, neuron_id_1] += 1
+    
+    print("Matrix min, max = ", adj_matrix.min(), " ", adj_matrix.max())
+    
+    adj_matrix_sum = adj_matrix.sum(axis=1)
+    
+    print("Max connections for single process = ", adj_matrix_sum.max(), " At new ID = ", np.argmax(adj_matrix_sum), " Old ID = ", [key for key, val in neuron_id_map.items() if val == np.argmax(adj_matrix_sum)] )
+    
+    # Save the neuron ID mappings
+    with open(self.output_dir + '/neuron_id_mapping.txt', 'w') as f:
+      json.dump(neuron_id_map, f)
+    
+    # Save adjacency matrix
+    adj_img = Image.fromarray(adj_matrix)
+    adj_img.save(self.output_dir + "/adjacency_matrix_" + input_mode + ".png")
+    
+    # Save scaled adjacency matrix to better visualize matrix since values are going to be very small
+    scaled_adj_matrix = adj_matrix.astype(np.double)
+    scaled_adj_matrix = ((scaled_adj_matrix - scaled_adj_matrix.min()) * (1/(scaled_adj_matrix.max() - scaled_adj_matrix.min()) * 255)).astype('uint8')
+    scaled_adj_img = Image.fromarray(scaled_adj_matrix)
+    scaled_adj_img.save(self.output_dir + "/scaled_adjacency_matrix_" + input_mode + ".png")
+    
+    # Inspect only non-zero rows/cols
+    mask = np.nonzero(np.sum(scaled_adj_matrix, axis = 1))[0]
+    non_zero_scaled_adj_matrix = scaled_adj_matrix[np.ix_(mask, mask)]
+    non_zero_scaled_adj_img = Image.fromarray(non_zero_scaled_adj_matrix)
+    non_zero_scaled_adj_img.save(self.output_dir + "/non_zero_scaled_adjacency_matrix_" + input_mode + ".png")
+    
+      
+  
   def run(self):
     self.create_neuron_bounding_boxes()
     self.trim_invalid_segments()
@@ -414,6 +483,7 @@ class DilateOverlap:
     self.overlap_all_segment_pairs("cleft")
     self.construct_full_overlap_mask("cleft")
 
+    self.connectivity_matrix("cleft")
 
 
 

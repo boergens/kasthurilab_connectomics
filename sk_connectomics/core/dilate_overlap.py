@@ -448,7 +448,7 @@ class DilateOverlap:
     print("Max connections for single process = ", adj_matrix_sum.max(), " At new ID = ", np.argmax(adj_matrix_sum), " Old ID = ", [key for key, val in neuron_id_map.items() if val == np.argmax(adj_matrix_sum)] )
     
     # Save the neuron ID mappings
-    with open(self.output_dir + '/neuron_id_mapping.txt', 'w') as f:
+    with open(self.output_dir + '/neuron_id_mapping.json', 'w') as f:
       json.dump(neuron_id_map, f)
     
     # Save adjacency matrix

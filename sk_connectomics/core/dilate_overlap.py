@@ -24,6 +24,7 @@ from multiprocessing import Pool
 import pandas as pd
 from PIL import Image
 import json
+from sklearn.metrics import precision_recall_fscore_support
 
 
 # Given a segmentation map (3D), we will dilate the neuron boundaries and identify overlap between neuron pairs.
@@ -38,13 +39,18 @@ import json
 #  The others will have to be idetified by croppnig out the bounding box intersection, performing a logical AND op, and storing the region of overlap
 
 class DilateOverlap:
-  def __init__(self, cremi_file_path, output_dir, dilation_voxel_count, voxel_volume_threshold, num_cores):
+  def __init__(self, cremi_file_path, output_dir, dilation_voxel_count, voxel_volume_threshold, num_cores, pred_path = None):
     self.cremi_file_path = cremi_file_path
     self.output_dir = output_dir
     self.hdf_handle = h5py.File(cremi_file_path, 'r')
     self.neuron_ids = np.array(self.hdf_handle["volumes/labels/neuron_ids"])
     self.hdf_handle = h5py.File(cremi_file_path, 'r')
     self.clefts = np.array(self.hdf_handle["volumes/labels/clefts"])
+    self.pred = None
+    if pred_path is not None:
+      with lzma.open(pred_path, "rb") as f:
+        self.pred = pickle.load(f)
+        
     # Clean out background voxels of cleft
     self.clefts[self.clefts == 18446744073709551615] = 0
     
@@ -81,6 +87,9 @@ class DilateOverlap:
     
   def create_cleft_bounding_boxes(self):
     self.min_coord_map_cleft, self.max_coord_map_cleft = self.create_bounding_boxes(self.clefts)
+  
+  def create_pred_bounding_boxes(self):
+    self.min_coord_map_pred, self.max_coord_map_pred = self.create_bounding_boxes(self.pred)
   
   # Add list of segment IDs which should be treated as background voxels
   def blacklist_append(self, segment_list):
@@ -366,7 +375,7 @@ class DilateOverlap:
         reader = csv.reader(f)
         overlap_list = list(reader)
         
-    print("Merging all overlapping segemnts into a common image")
+    print("Merging all overlapping segments into a common image")
     overlap_img_combined = np.zeros(self.neuron_ids.shape).astype(bool)
     
     header = ['SEGMENT_ID_1', 'SEGMENT_ID_2', 'MIN_X', 'MIN_Y', 'MIN_Z', 'MAX_X', 'MAX_Y', 'MAX_Z', 'VOLUME']
@@ -467,8 +476,35 @@ class DilateOverlap:
     non_zero_scaled_adj_img = Image.fromarray(non_zero_scaled_adj_matrix)
     non_zero_scaled_adj_img.save(self.output_dir + "/non_zero_scaled_adjacency_matrix_" + input_mode + ".png")
     
-      
   
+  def calc_f1_score(self):
+    # 1. Binarize connectivity matrices
+    # 2. Extract upper triangular matrix from connectivity matrix to include each segment pair only once
+    # 3. Calculate precision, recall, f1 score
+    
+    cleft_adj_matrix = np.array(Image.open(self.output_dir + "/adjacency_matrix_cleft.png"))
+    pred_adj_matrix = np.array(Image.open(self.output_dir + "/adjacency_matrix_pred.png"))
+    
+    cleft_adj_matrix = np.where(cleft_adj_matrix>0 , 1, 0)
+    pred_adj_matrix = np.where(pred_adj_matrix>0 , 1, 0)
+    
+    assert cleft_adj_matrix.shape[0] == cleft_adj_matrix.shape[1]
+    assert pred_adj_matrix.shape[0] == pred_adj_matrix.shape[1]
+    assert cleft_adj_matrix.shape[0] == pred_adj_matrix.shape[0]
+    
+    n = cleft_adj_matrix.shape[0]
+    print("Connectivity Matrix Size = ", n)
+    
+    cleft_pairs = cleft_adj_matrix[np.triu_indices(n)]
+    pred_pairs = pred_adj_matrix[np.triu_indices(n)]
+    
+    precision, recall, f1, support = precision_recall_fscore_support(cleft_pairs, pred_pairs, average="binary")
+    print("Precision = ", precision)
+    print("Recall = ", recall)
+    print("F1 score = ", f1)
+    print("Support = ", support)
+    
+    
   def run(self):
     self.create_neuron_bounding_boxes()
     self.trim_invalid_segments()
@@ -485,7 +521,15 @@ class DilateOverlap:
 
     self.connectivity_matrix("cleft")
 
+    if self.pred is not None:
+      self.create_pred_bounding_boxes()
+      self.crop_out_bounding_boxes("pred")
+      self.find_overlaping_neuron_synapse_segments("pred")
+      self.overlap_all_segment_pairs("pred")
+      self.construct_full_overlap_mask("pred")
 
+      self.connectivity_matrix("pred")
+      self.calc_f1_score()
 
 # References: 
 # Scipy image dilaiton: https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.binary_dilation.html

@@ -20,7 +20,7 @@ f = h5py.File("/home/suryakalia/documents/summer/datasets/cremi/sample_A_2016050
 neuron_ids = np.array(f["volumes/labels/neuron_ids"])
 clefts = np.array(f["volumes/labels/clefts"])
 
-def process_segment(img, segment_id, segment_volume, min_fraction_to_split, max_label, num_procs):
+def process_segment(img, segment_id, segment_volume, min_fraction_to_split, max_label, num_procs, vol_threshold):
   # print("Entered process segment for segment = ", segment_id)
   binary_mask = np.where(img == segment_id , 1, 0).astype(np.uint8)
   # print("Binary mask created for segment = ", segment_id)
@@ -47,8 +47,8 @@ def process_segment(img, segment_id, segment_volume, min_fraction_to_split, max_
         
         largest = False
       else:
-        # Check if segment constitutes a significant fraction of the parent segment
-        if vol/segment_volume >= min_fraction_to_split :
+        # Check if segment constitutes a significant fraction of the parent segment and is larger than abs threshold
+        if vol/segment_volume >= min_fraction_to_split and vol >= vol_threshold:
           # Got a valid segment. Provide a new label
           max_label += num_procs
           # print("Found a split in segmentation. New split segment_id, vol = ", max_label, ",", vol, "volume ratio = ", vol/segment_volume)
@@ -57,7 +57,7 @@ def process_segment(img, segment_id, segment_volume, min_fraction_to_split, max_
           
         else:
           # Got a small splinter. Eliminate segment
-          # print("Eliminated splinter of size ratio: ", vol/segment_volume)
+          # print("Eliminated splinter of size ratio: ", vol/segment_volume, " and volume: ", vol)
           labeled_mask = np.where(labeled_mask == id, 0, labeled_mask)
           # print("Labeled Mask type after third where:", labeled_mask.dtype)
           
@@ -104,14 +104,14 @@ def parallel_process_segment_wrapper(tuple_list):
   clean_img = np.zeros(p_img.shape).astype(np.uint32)
   for tuple in tqdm(tuple_list):
     segmentation_id, vol = tuple
-    if (segmentation_id == 0):
+    if (segmentation_id == 0 or vol < p_vol_threshold):
       continue
     # print("processing instance", tuple)
     # print("process id", multiprocessing.current_process()._identity[0])
     # print("img shape = ", p_img.shape)
     # print(p_img[0][0])
     # p_img[0][0] =  multiprocessing.current_process()._identity[0]
-    mask, p_max_label = process_segment(p_img, segmentation_id, vol, p_min_fraction_to_split, p_max_label, p_num_procs)
+    mask, p_max_label = process_segment(p_img, segmentation_id, vol, p_min_fraction_to_split, p_max_label, p_num_procs, p_vol_threshold)
     # print("finished processing instance", tuple, " mask min = ", np.min(mask), " max = ", np.max(mask))
 
     print("PID =", p_id, "Finished processing segmentation_id =", segmentation_id)
@@ -124,9 +124,11 @@ def parallel_process_segment_wrapper(tuple_list):
   
 
 def parallel_cleanup_segmentation_image(img, vol_threshold, min_fraction_to_split, num_procs, num_chunks):
-  clean_img = np.zeros(img.shape).astype(np.uint32)
   # Eliminate any background pixels
   img = np.where(img==(2**64 - 1), 0, img)
+  
+  clean_img = np.zeros(img.shape).astype(np.uint32)
+  
   # Track current max label for creating new labels if needed
   max_label = np.max(img)
   (unique, counts) = np.unique(img, return_counts=True)
@@ -178,6 +180,8 @@ def parallel_cleanup_segmentation_image(img, vol_threshold, min_fraction_to_spli
 
 
 clean_neuron_ids = parallel_cleanup_segmentation_image(neuron_ids, 100, 0.1, 10, 10)
+# clean_neuron_ids = parallel_cleanup_segmentation_image(neuron_ids, 100, 0.1, 2, 2)
+
 with lzma.open("/home/suryakalia/documents/summer/datasets/cremi_clean/" + "clean_neuron_ids.xz", "wb") as f:
     pickle.dump(clean_neuron_ids, f)
     
@@ -189,5 +193,11 @@ print(np.min(clean_neuron_ids))
 plt.imsave("clean_neuron_ids_slice_0.png", clean_neuron_ids[0,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
 plt.imsave("clean_neuron_ids_slice_62.png", clean_neuron_ids[62,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
 plt.imsave("clean_neuron_ids_slice_124.png", clean_neuron_ids[124,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
+
+# plt.imsave("clean_neuron_ids_slice_0.png", clean_neuron_ids[0,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
+# plt.imsave("clean_neuron_ids_slice_1.png", clean_neuron_ids[1,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
+# plt.imsave("clean_neuron_ids_slice_2.png", clean_neuron_ids[2,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
+# plt.imsave("clean_neuron_ids_slice_3.png", clean_neuron_ids[3,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
+# plt.imsave("clean_neuron_ids_slice_4.png", clean_neuron_ids[4,:,:], cmap='gray', vmin=0, vmax=np.max(clean_neuron_ids))
 
 

@@ -34,7 +34,8 @@ dilator = DilateOverlap(cremi_file_path="/home/suryakalia/documents/summer/datas
                         output_dir="/home/suryakalia/documents/summer/tests/cremi_clean/",
                         dilation_voxel_count=1,
                         voxel_volume_threshold=50,
-                        num_cores=20)
+                        num_cores=1,
+                        pred_path="/home/suryakalia/documents/summer/datasets/cremi_clean/result_A_components.xz")
 
 
 # dilator.blacklist_append([20474])
@@ -61,8 +62,21 @@ dilator = DilateOverlap(cremi_file_path="/home/suryakalia/documents/summer/datas
 # dilator.overlap_all_segment_pairs("neuron")
 # dilator.construct_full_overlap_mask("neuron")
 
-dilator.create_cleft_bounding_boxes()
-dilator.crop_out_bounding_boxes("cleft")
-dilator.find_overlaping_neuron_synapse_segments("cleft")
-dilator.overlap_all_segment_pairs("cleft")
-dilator.construct_full_overlap_mask("cleft")
+# dilator.create_cleft_bounding_boxes()
+# dilator.crop_out_bounding_boxes("cleft")
+# dilator.find_overlaping_neuron_synapse_segments("cleft")
+# dilator.overlap_all_segment_pairs("cleft")
+# dilator.construct_full_overlap_mask("cleft")
+
+# dilator.connectivity_matrix("cleft")
+
+
+# dilator.create_pred_bounding_boxes()
+# dilator.crop_out_bounding_boxes("pred")
+# dilator.find_overlaping_neuron_synapse_segments("pred")
+# dilator.overlap_all_segment_pairs("pred")
+# dilator.construct_full_overlap_mask("pred")
+
+# dilator.connectivity_matrix("pred")
+
+dilator.calc_f1_score()

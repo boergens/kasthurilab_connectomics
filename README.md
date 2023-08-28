@@ -111,7 +111,7 @@ Apart from the above console output, there are multiple output files and directo
 Below is an overview of what goes on under the hood when executing `run()`
 
 <p align="center">
-<img src="images/DilateOverlap_control_flow.png" align="center" width=70%>
+<img src="images/DilateOverlap_control_flow.png" align="center" width=100%>
 </p>
 
 <!-- ![Control flow diagrom for run() function](images/DilateOverlap_control_flow.png) -->

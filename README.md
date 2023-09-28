@@ -113,6 +113,7 @@ Below is an overview of what goes on under the hood when executing `run()`
 <p align="center">
 <img src="images/DilateOverlap_control_flow.png" align="center" width=100%>
 </p>
+Also, check the comments in line 30-39 dilate_overlap.py
 
 <!-- ![Control flow diagrom for run() function](images/DilateOverlap_control_flow.png) -->
 

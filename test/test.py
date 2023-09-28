@@ -27,7 +27,7 @@ dilator = DilateOverlap(cremi_file_path="/home/suryakalia/documents/summer/datas
                         pred_path="/home/suryakalia/documents/summer/datasets/cremi_clean/result_A_components.xz")
 
 
-# dilator.blacklist_append([20474])
+# dilator.blacklist_append([20474]) # list of cells that should be ignored, such as glia cells
 
 dilator.run()
 
